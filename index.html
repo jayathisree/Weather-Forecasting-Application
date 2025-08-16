@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Weather • Simple Forecast</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='icons/sun.svg') }}">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="header">
+        <img src="{{ url_for('static', filename='icons/sun.svg') }}" alt="sun icon">
+        <h1 class="h1">AI Weather • Simple Forecast</h1>
+      </div>
+
+      <div class="row">
+        <select id="citySelect"></select>
+        <button class="ghost" id="refreshBtn">Refresh</button>
+        <span class="badge" id="statusBadge">idle</span>
+      </div>
+
+      <div class="grid" id="kpis">
+        <!-- Filled by JS -->
+      </div>
+
+      <div class="tile" style="margin-top:14px">
+        <strong>Predict next-day temperature (optional):</strong>
+        <small>Enter last 10 daily temperatures (°C), comma separated.</small>
+        <div class="row">
+          <input id="temps" placeholder="e.g. 30,31,31.5,32,33,33,34,34.2,35,35.5">
+          <button class="primary" id="predictBtn">Predict</button>
+          <button id="sampleBtn">Use sample</button>
+        </div>
+        <div id="predOut" class="badge">No prediction yet</div>
+      </div>
+
+      <div class="footer">
+        Icons included locally • Works offline. For live data, wire an API later.
+      </div>
+    </div>
+  </div>
+
+<script>
+const icons = {
+  sunny: "{{ url_for('static', filename='icons/sun.svg') }}",
+  cloud: "{{ url_for('static', filename='icons/cloud.svg') }}",
+  cloudy: "{{ url_for('static', filename='icons/cloud.svg') }}",
+  rain: "{{ url_for('static', filename='icons/rain.svg') }}"
+};
+
+async function fetchJSON(url, opts={}){
+  const r = await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  return r.json();
+}
+
+function setStatus(txt){ document.getElementById('statusBadge').textContent = txt; }
+
+function kpiTile(label, value, iconKey){
+  return `<div class="tile"><img src="${icons[iconKey]||icons.sunny}" alt="" style="width:28px;height:28px"><div class="kpi">${value}</div><small>${label}</small></div>`;
+}
+
+async function loadCities(){
+  setStatus('loading cities…');
+  const data = await fetchJSON('/api/cities');
+  const sel = document.getElementById('citySelect');
+  sel.innerHTML = data.cities.map(c=>`<option value="${c.id}">${c.name}, ${c.country}</option>`).join('');
+  setStatus('ready');
+  renderCity(data.cities[0].id);
+}
+
+async function renderCity(cityId){
+  setStatus('loading weather…');
+  const data = await fetchJSON('/api/weather/'+cityId);
+  const kpis = document.getElementById('kpis');
+  const c = data.city;
+  kpis.innerHTML = `
+    ${kpiTile('City', c.name+', '+c.country, c.condition)}
+    ${kpiTile('Current Temp', data.current.toFixed(1)+' °C', c.condition)}
+    ${kpiTile('Feels Like', (data.current-0.5).toFixed(1)+' °C', c.condition)}
+    ${kpiTile('5‑Day Avg', data.five_day_avg.toFixed(1)+' °C', c.condition)}
+  `;
+  setStatus('ready');
+}
+
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  const sel = document.getElementById('citySelect');
+  renderCity(sel.value);
+});
+
+document.getElementById('citySelect').addEventListener('change', (e)=>{
+  renderCity(e.target.value);
+});
+
+document.getElementById('sampleBtn').addEventListener('click', ()=>{
+  document.getElementById('temps').value = "30,30.5,31,31.4,31.9,32.2,32.8,33.1,33.4,33.8";
+});
+
+document.getElementById('predictBtn').addEventListener('click', async ()=>{
+  const raw = document.getElementById('temps').value.trim();
+  if(!raw){ document.getElementById('predOut').textContent = 'Enter 10 values first.'; return; }
+  const seq = raw.split(',').map(s=>Number(s.trim())).filter(x=>!Number.isNaN(x));
+  if(seq.length !== 10){ document.getElementById('predOut').textContent = 'Please provide exactly 10 numbers.'; return; }
+  try{
+    const res = await fetch('/predict', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({temp_sequence: seq})});
+    const data = await res.json();
+    document.getElementById('predOut').textContent = 'Predicted Next Day: ' + data.predicted_temperature.toFixed(2) + ' °C';
+  }catch(e){
+    document.getElementById('predOut').textContent = 'Prediction failed.';
+  }
+});
+
+loadCities();
+</script>
+</body>
+</html>
